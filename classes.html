@@ -187,6 +187,18 @@
                 top: 10px;
             }
         }
+
+        /* small notice link style */
+        .index-link {
+            display:inline-block;
+            margin-top:8px;
+            color:#0a7f6e;
+            background:#e6f7f4;
+            padding:6px 10px;
+            border-radius:6px;
+            text-decoration:none;
+            font-weight:600;
+        }
     </style>
 </head>
 
@@ -272,7 +284,7 @@
     </main>
 
     <script type="module">
-        // --- imports (keep same server.js API as your project) ---
+        // --- imports (should match your server.js exports)
         import {
             requireAuth, db, storage,
             collection, query, where, orderBy, onSnapshot,
@@ -280,7 +292,7 @@
             doc, getDoc, getDocs
         } from "./server.js";
 
-        // safe DOM getters
+        // small DOM helper
         const $id = id => document.getElementById(id);
 
         // required nodes
@@ -299,15 +311,13 @@
             submitStatus: $id('submitStatus')
         };
 
-        // guard: ensure server.js provided helpers exist
-        if (typeof requireAuth !== 'function' || !db || !storage) {
-            console.error('Required server helpers not found. Ensure server.js exports requireAuth, db and storage.');
+        if (typeof requireAuth !== 'function' || !db) {
+            console.error('server.js must export requireAuth and db');
             alert('System error: required backend helpers missing. Check server.js and imports.');
-            // stop further execution
-            throw new Error('Missing server.js exports: requireAuth/db/storage');
+            throw new Error('Missing server.js exports: requireAuth/db');
         }
 
-        // get class id from URL (support id or classId)
+        // get class id from URL
         const params = new URLSearchParams(location.search);
         const classId = params.get('id') || params.get('classId');
         if (!classId) {
@@ -324,55 +334,42 @@
                     const el = $id('sec-' + k);
                     if (el) el.style.display = (k === key) ? 'block' : 'none';
                 });
-                // show submit form for questions/assignments, hide otherwise
                 const submitSection = $id('sec-submit');
                 if (submitSection) submitSection.style.display = (key === 'questions' || key === 'assignments') ? 'block' : 'none';
                 document.querySelectorAll('[data-tab]').forEach(t => t.classList.toggle('active', t === tab));
             });
         });
 
-        // default tab states
+        // defaults
         document.querySelectorAll('[data-tab]')[0]?.classList.add('active');
         $id('sec-notices').style.display = 'block';
         $id('sec-submit').style.display = 'none';
 
-        // helper to format Firestore timestamps
         function formatTS(ts) {
             try {
                 if (!ts) return '';
                 if (typeof ts.toDate === 'function') return ts.toDate().toLocaleString();
+                if (typeof ts.toMillis === 'function') return new Date(ts.toMillis()).toLocaleString();
                 return new Date(ts).toLocaleString();
             } catch (e) { return ''; }
         }
 
-        // local note cache for sorting
         let notesCache = [];
         let me = null;
 
-        // wire back button
+        // back button
         if (nodes.btnBack) nodes.btnBack.addEventListener('click', () => {
-            // if classroom page exists in your project, go there; otherwise go back
             if (location.origin + '/classroom.html') window.location.href = 'classroom.html';
             else history.back();
         });
 
-        // require auth and then initialize watchers
+        // Start after auth
         requireAuth(async user => {
-            try {
-                me = user;
-                if (me && me.email) {
-                    $id('classMeta').textContent = 'Signed in as ' + me.email;
-                }
-                // load static class metadata
-                await loadClassMeta();
-                // start real-time listeners
-                initWatchers();
-                // wire submit form
-                wireSubmitForm();
-            } catch (err) {
-                console.error('Auth/init error', err);
-                alert('Initialization error: ' + (err.message || err));
-            }
+            me = user;
+            if (me && me.email) $id('classMeta').textContent = 'Signed in as ' + me.email;
+            await loadClassMeta();
+            initWatchers();
+            wireSubmitForm();
         });
 
         async function loadClassMeta() {
@@ -381,8 +378,8 @@
                 if (!snap.exists()) { alert('Class not found.'); location.href = 'classroom.html'; return; }
                 const c = snap.data();
                 if (c) {
-                    if (nodes.classTitle) nodes.classTitle.textContent = c.name || 'Class';
-                    if (nodes.classMeta) nodes.classMeta.textContent = `Code: ${c.code || ''} · Members: ${(c.members || []).length || 0}`;
+                    nodes.classTitle.textContent = c.name || 'Class';
+                    nodes.classMeta.textContent = `Code: ${c.code || ''} · Members: ${(c.members || []).length || 0}`;
                 }
             } catch (e) {
                 console.error('loadClassMeta failed', e);
@@ -394,12 +391,8 @@
             try {
                 const qNotices = query(collection(db, 'classes', classId, 'notices'), orderBy('createdAt', 'desc'));
                 onSnapshot(qNotices, ns => {
-                    if (!nodes.classNotices) return;
                     nodes.classNotices.innerHTML = '';
-                    if (ns.empty) {
-                        nodes.classNotices.innerHTML = "<div class='muted'>No notices yet.</div>";
-                        return;
-                    }
+                    if (ns.empty) { nodes.classNotices.innerHTML = "<div class='muted'>No notices yet.</div>"; return; }
                     ns.forEach(d => {
                         const n = d.data();
                         const div = document.createElement('div'); div.className = 'list-item';
@@ -416,7 +409,6 @@
             try {
                 const qAssign = query(collection(db, 'classes', classId, 'assignments'), orderBy('createdAt', 'desc'));
                 onSnapshot(qAssign, snap => {
-                    if (!nodes.assignList) return;
                     nodes.assignList.innerHTML = '';
                     if (snap.empty) { nodes.assignList.innerHTML = "<div class='muted'>No assignments yet.</div>"; return; }
                     snap.forEach(docSnap => {
@@ -429,13 +421,11 @@
               <div style="margin-top:8px;"><button class="btn secondary" data-assign="${id}">Submit / Ask</button></div>`;
                         nodes.assignList.appendChild(div);
                     });
-                    // attach submit buttons (delegated)
                     nodes.assignList.querySelectorAll('[data-assign]').forEach(b => {
                         b.onclick = () => {
                             const aid = b.getAttribute('data-assign');
                             const submitFor = $id('submitFor');
                             if (submitFor) submitFor.value = aid;
-                            // switch to questions tab
                             const tab = Array.from(document.querySelectorAll('[data-tab]')).find(t => t.getAttribute('data-tab') === 'questions');
                             tab?.click();
                             const submitSection = $id('sec-submit'); if (submitSection) submitSection.style.display = 'block';
@@ -444,15 +434,12 @@
                 });
             } catch (e) { console.error('assignments watcher failed', e); }
 
-            // My Questions (requires me)
+            // My Questions
             try {
-                if (!me) {
-                    // wait until auth resolves again
-                    console.warn('User not yet available for questions watcher');
-                } else {
+                if (!me) console.warn('User not yet available for questions watcher');
+                else {
                     const qMyQ = query(collection(db, 'classes', classId, 'questions'), where('studentUid', '==', me.uid), orderBy('createdAt', 'desc'));
                     onSnapshot(qMyQ, qsnap => {
-                        if (!nodes.qaList) return;
                         nodes.qaList.innerHTML = '';
                         if (qsnap.empty) { nodes.qaList.innerHTML = "<div class='muted'>No questions yet.</div>"; return; }
                         qsnap.forEach(docSnap => {
@@ -469,30 +456,84 @@
                 }
             } catch (e) { console.error('questions watcher failed', e); }
 
-            // My Submissions
+            // My Submissions — add error handling + fallback (in case Firestore index required)
             try {
-                if (!me) {
-                    console.warn('User not yet available for submissions watcher');
-                } else {
+                if (!me) console.warn('User not yet available for submissions watcher');
+                else {
                     const qSubs = query(collection(db, 'classes', classId, 'submissions'), where('studentUid', '==', me.uid), orderBy('createdAt', 'desc'));
-                    onSnapshot(qSubs, snap => {
-                        if (!nodes.mySubmissions) return;
-                        nodes.mySubmissions.innerHTML = '';
-                        if (snap.empty) { nodes.mySubmissions.innerHTML = "<div class='muted'>No submissions yet.</div>"; return; }
-                        snap.forEach(docSnap => {
-                            const s = docSnap.data();
-                            const div = document.createElement('div'); div.className = 'list-item';
-                            div.innerHTML = `<strong>${escapeHtml(s.title || 'Submission')}</strong>
-                <div style="margin-top:6px;">${escapeHtml(s.message || '')}</div>
-                ${s.fileURL ? `<div style="margin-top:8px;"><a href="${s.fileURL}" target="_blank" rel="noopener">📎 ${escapeHtml(s.fileName || 'File')}</a></div>` : ''}
-                <div class="muted" style="margin-top:8px;">Submitted: ${formatTS(s.createdAt)}</div>`;
-                            nodes.mySubmissions.appendChild(div);
+
+                    onSnapshot(qSubs,
+                        snap => {
+                            nodes.mySubmissions.innerHTML = '';
+                            if (snap.empty) { nodes.mySubmissions.innerHTML = "<div class='muted'>No submissions yet.</div>"; return; }
+                            snap.forEach(docSnap => {
+                                const s = docSnap.data();
+                                const div = document.createElement('div'); div.className = 'list-item';
+                                div.innerHTML = `<strong>${escapeHtml(s.title || 'Submission')}</strong>
+                    <div style="margin-top:6px;">${escapeHtml(s.message || '')}</div>
+                    ${s.fileURL ? `<div style="margin-top:8px;"><a href="${s.fileURL}" target="_blank" rel="noopener">📎 ${escapeHtml(s.fileName || 'File')}</a></div>` : ''}
+                    <div class="muted" style="margin-top:8px;">Submitted: ${formatTS(s.createdAt)}</div>`;
+                                nodes.mySubmissions.appendChild(div);
+                            });
+                        },
+                        async err => {
+                            console.error('submissions watcher error', err);
+                            const msg = err?.message || String(err);
+                            nodes.mySubmissions.innerHTML = `<div class="muted">Failed to fetch submissions: ${escapeHtml(msg)}</div>`;
+
+                            const linkMatch = (msg.match(/https?:\/\/console\.firebase\.google\.com[^\s)"]+/) || [null])[0];
+                            if (linkMatch) {
+                                const a = document.createElement('a');
+                                a.href = linkMatch;
+                                a.target = '_blank';
+                                a.rel = 'noopener';
+                                a.className = 'index-link';
+                                a.textContent = 'Create required Firestore index (console)';
+                                nodes.mySubmissions.appendChild(a);
+                            }
+
+                            // Fallback: fetch entire submissions collection and filter locally (use only if small)
+                            try {
+                                const fallbackMsg = document.createElement('div');
+                                fallbackMsg.className = 'muted';
+                                fallbackMsg.style.marginTop = '8px';
+                                fallbackMsg.textContent = 'Attempting a local fallback (may be slow for many submissions)...';
+                                nodes.mySubmissions.appendChild(fallbackMsg);
+
+                                const allSnap = await getDocs(collection(db, 'classes', classId, 'submissions'));
+                                const docs = allSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
+                                const myDocs = docs.filter(x => x.studentUid === me.uid)
+                                    .sort((a, b) => {
+                                        const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+                                        const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+                                        return tb - ta;
+                                    });
+
+                                nodes.mySubmissions.innerHTML = '';
+                                if (!myDocs.length) {
+                                    nodes.mySubmissions.innerHTML = '<div class="muted">No submissions found (fallback). If you recently submitted, ensure it was saved correctly.</div>';
+                                } else {
+                                    myDocs.forEach(s => {
+                                        const div = document.createElement('div'); div.className = 'list-item';
+                                        div.innerHTML = `<strong>${escapeHtml(s.title || 'Submission')}</strong>
+                          <div style="margin-top:6px;">${escapeHtml(s.message || '')}</div>
+                          ${s.fileURL ? `<div style="margin-top:8px;"><a href="${s.fileURL}" target="_blank" rel="noopener">📎 ${escapeHtml(s.fileName || 'File')}</a></div>` : ''}
+                          <div class="muted" style="margin-top:8px;">Submitted: ${formatTS(s.createdAt)}</div>`;
+                                        nodes.mySubmissions.appendChild(div);
+                                    });
+                                }
+                            } catch (fallbackErr) {
+                                console.error('fallback fetch failed', fallbackErr);
+                                const fmsg = document.createElement('div'); fmsg.className = 'muted';
+                                fmsg.style.marginTop = '8px';
+                                fmsg.textContent = 'Fallback fetch failed. Please ask your admin to create the required Firestore index.';
+                                nodes.mySubmissions.appendChild(fmsg);
+                            }
                         });
-                    });
                 }
             } catch (e) { console.error('submissions watcher failed', e); }
 
-            // Notes (cache + render)
+            // Notes
             try {
                 const qNotes = query(collection(db, 'classes', classId, 'notes'), orderBy('createdAt', 'desc'));
                 onSnapshot(qNotes, snap => {
@@ -501,9 +542,9 @@
                     renderNotes();
                 });
             } catch (e) { console.error('notes watcher failed', e); }
-        } // end requireAuth callback
+        } // requireAuth end
 
-        // Render notes with sort
+        // Render notes
         function renderNotes() {
             if (!nodes.notesList) return;
             nodes.notesList.innerHTML = '';
@@ -524,10 +565,9 @@
             });
         }
 
-        // sort change hook
         if (nodes.notesSort) nodes.notesSort.addEventListener('change', renderNotes);
 
-        // Submit form handling
+        // Submit form
         function wireSubmitForm() {
             const form = nodes.submitForm;
             if (!form) return;
@@ -559,7 +599,6 @@
                         });
                         if (nodes.submitStatus) nodes.submitStatus.textContent = 'Question posted';
                     } else {
-                        // create submission document
                         await addDoc(collection(db, 'classes', classId, 'submissions'), {
                             title: title || 'Submission',
                             message: message || '',
@@ -580,7 +619,7 @@
             if (nodes.resetSubmit) nodes.resetSubmit.addEventListener('click', () => { form.reset(); if (nodes.submitStatus) nodes.submitStatus.textContent = ''; });
         }
 
-        // small helper to escape html (prevent accidental HTML injection)
+        // escape helper
         function escapeHtml(str) {
             if (!str && str !== 0) return '';
             return String(str)
@@ -590,8 +629,6 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#039;');
         }
-
-        // End of module
     </script>
 </body>
 
